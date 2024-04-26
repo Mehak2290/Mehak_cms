@@ -1,82 +1,139 @@
-<?php
-ini_set('display_errors', 1);
-error_reporting(E_ALL);
+<?php 
+session_start();
+
+if (!isset($_SESSION['admin_id'])) {
+    $_SESSION['error'] = 'You must be logged in to view this page.';
+    header('Location: login.php');
+    exit();
+}
+
 require 'header.php'; 
-require 'connect.php';
+require '../connect.php';
 
-$search = $_GET['search'] ?? '';
-$category = $_GET['category'] ?? '';
+// Capture sorting parameters
+$sortField = $_GET['sort'] ?? 'title'; // Default sort field
+$sortOrder = $_GET['order'] ?? 'asc'; // Default sort order
 
-$queryParts = [];
-$params = [];
+// Toggle the sort order
+$nextOrder = $sortOrder === 'asc' ? 'desc' : 'asc';
 
-if (!empty($search)) {
-    $queryParts[] = "(title LIKE :search OR description LIKE :search)";
-    $params[':search'] = '%' . $search . '%';
+// Handle book deletion
+if (isset($_GET['book_id'])) {
+    $book_id = $_GET['book_id'];
+    $sql = "DELETE FROM Books WHERE book_id = ?";
+    $stmt = $pdo->prepare($sql);
+
+    try {
+        $stmt->execute([$book_id]);
+        $_SESSION['message'] = 'Book deleted successfully.';
+    } catch (PDOException $e) {
+        $_SESSION['error'] = 'Error deleting book: ' . $e->getMessage();
+    }
 }
 
-if (!empty($category)) {
-    $queryParts[] = "category_id = :category";
-    $params[':category'] = $category;
-}
-
-$queryStr = "SELECT * FROM Books";
-if ($queryParts) {
-    $queryStr .= " WHERE " . implode(' AND ', $queryParts);
-}
-
-try {
-    $stmt = $pdo->prepare($queryStr);
-    $stmt->execute($params);
-    $books = $stmt->fetchAll(PDO::FETCH_ASSOC);
-} catch (PDOException $e) {
-    echo "Connection or query failed: " . $e->getMessage();
-    exit;
-}
+// Fetch books with sorting
+$sql = "SELECT Books.book_id, Books.title, Books.author, Books.price, Books.description, Books.image_url, Categories.category_name 
+        FROM Books 
+        JOIN Categories ON Books.category_id = Categories.category_id
+        ORDER BY $sortField $sortOrder";
+$stmt = $pdo->query($sql);
+$books = $stmt->fetchAll(PDO::FETCH_ASSOC);
 ?>
-<div class="container mt-3">
-    <div class="row">
-        <div class="col-md-12">
-            <form action="" method="GET" class="form-inline">
-                <input type="text" name="search" class="form-control mr-sm-2" placeholder="Search by title or description" value="<?php echo htmlspecialchars($_GET['search'] ?? ''); ?>" />
-                <select name="category" class="form-control mr-sm-2">
-                    <option value="">All Categories</option>
-                    <?php
-                    $catStmt = $pdo->query("SELECT * FROM Categories");
-                    $categories = $catStmt->fetchAll(PDO::FETCH_ASSOC);
-                    foreach ($categories as $category) {
-                        echo "<option value=\"" . htmlspecialchars($category['category_id']) . "\"" . 
-                             (isset($_GET['category']) && $_GET['category'] == $category['category_id'] ? ' selected' : '') .
-                             ">" . htmlspecialchars($category['category_name']) . "</option>";
-                    }
-                    ?>
-                </select>
-                <button type="submit" class="btn btn-primary">Search</button>
-            </form>
-        </div>
-    </div>
-</div>
 <div class="container mt-5">
-    <h1 class="mb-4 text-center">Available Books</h1>
-    <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 g-4">
-        <?php foreach ($books as $book): ?>
-            <div class="col">
-                <div class="card h-100 shadow-sm">
-                    <a href="view.php?book_id=<?php echo $book['book_id']; ?>"> <!-- Link to the view page -->
-                        <img src="./admin/<?php echo !empty($book['image_url']) ? htmlspecialchars($book['image_url']) : 'https://via.placeholder.com/150'; ?>" class="card-img-top" alt="Cover Image" style="height: 300px; object-fit: cover;">
-                    </a>
-                    <div class="card-body">
-                        <h5 class="card-title"><?php echo htmlspecialchars($book['title']); ?></h5>
-                        <p class="card-text"><a href="view.php?book_id=<?php echo $book['book_id']; ?>" class="stretched-link"></a></p>
-                    </div>
-                    <div class="card-footer bg-transparent border-top-0">
-                        <small class="text-muted">Author: <?php echo htmlspecialchars($book['author']); ?></small>
-                    </div>
-                </div>
+
+
+    <h2>Manage Books</h2>
+    <div class="btn-group" role="group">
+                <a href="?sort=title&order=<?= $nextOrder ?>" class="btn btn-primary">Sort by Title</a>
+                <a href="?sort=price&order=<?= $nextOrder ?>" class="btn btn-secondary">Sort by Price</a>
+                <a href="?sort=category_name&order=<?= $nextOrder ?>" class="btn btn-success">Sort by Category</a>
             </div>
-        <?php endforeach; ?>
-    </div>
+    <div class="row">
+        <div class="col-md-6">
+            <div class="table-responsive">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Id</th>
+                            <th>Title</th>
+                            <th>Author</th>
+                            <th>Price</th>
+                            <th>Category</th>
+                            <th>Description</th>
+                            <th>Image</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($books as $row): ?>
+                        <tr>
+                            <td><?= htmlspecialchars($row['book_id']) ?></td>
+                            <td><?= htmlspecialchars($row['title']) ?></td>
+                            <td><?= htmlspecialchars($row['author']) ?></td>
+                            <td>$<?= number_format($row['price'], 2) ?></td>
+                            <td><?= htmlspecialchars($row['category_name']) ?></td>
+                            <td><?= htmlspecialchars($row['description']) ?></td>
+                            <td>
+                                <?php if (!empty($row['image_url'])): ?>
+                                <img src="<?= htmlspecialchars($row['image_url']) ?>" alt="Book Cover" style="width:100px; height:auto;">
+                                <?php else: ?>
+                                No image available
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <a href="edit_book.php?book_id=<?= $row['book_id'] ?>" class='btn btn-primary'>Edit</a>
+                                <a href="?book_id=<?= $row['book_id'] ?>&sort=<?= $sortField ?>&order=<?= $sortOrder ?>" onclick="return confirm('Are you sure you want to delete this book?')" class='btn btn-danger'>Delete</a>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                    
+                </table>
+                
+            </div>
+         
+        </div>
+
+        <div class="col-md-6">
+                <h4>Add New Book</h4>
+                <form action="add_book.php" method="POST" enctype="multipart/form-data">
+                    <div class="mb-3">
+                        <label for="title" class="form-label">Title:</label>
+                        <input type="text" class="form-control" id="title" name="title" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="author" class="form-label">Author:</label>
+                        <input type="text" class="form-control" id="author" name="author" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="price" class="form-label">Price:</label>
+                        <input type="text" class="form-control" id="price" name="price" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="category" class="form-label">Category:</label>
+                        <select class="form-select" id="category" name="category">
+                            <?php
+                            $sql = "SELECT category_id, category_name FROM Categories";
+                            $stmt = $pdo->query($sql);
+                            while ($category = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                                echo "<option value='" . $category['category_id'] . "'>" . htmlspecialchars($category['category_name']) . "</option>";
+                            }
+                            ?>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="description" class="form-label">Description:</label>
+                        <textarea class="form-control" id="description" name="description" required></textarea>
+                    </div>
+                    <div class="mb-3">
+    <label for="image" class="form-label">Book Cover Image:</label>
+    <input type="file" class="form-control" id="image" name="image" >
 </div>
+                    <button type="submit" class="btn btn-primary">Add Book</button>
+                </form>
+            </div>
+        
+    </div>
 
-
+</div>
 <?php require 'footer.php'; ?>
